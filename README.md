@@ -1,113 +1,35 @@
-# Exasol Analytics Lab (Columnar MPP Patterns)
+# Gross Margin Tuesday: Stores vs Region (Exasol-style SQL)
 
-**Author:** [Faiz Elahi](https://github.com/faizilahi) (`faizilahi`) · **Type:** EDUCATIONAL LAB · **Synthetic data only**
+[Faiz Elahi](https://www.linkedin.com/in/faizilahi) — [pendataco.com](https://pendataco.com) — [github.com/faizilahi](https://github.com/faizilahi)
 
----
+Synthetic retail POS and shrink adjustments only. No vendor employment claim.
 
-## Educational disclaimer
+A Mid-Atlantic grocery region manager and three store GMs argued about a Tuesday gross-margin print. The region pack showed **24.1%**. Store ops insisted their registers were closer to **27%**. The gap was distribution of the sales fact (hash on `sku_id` for category packs) plus a late shrink journal that only the region cube absorbed. This lab rebuilds the argument in Exasol-flavored SQL on DuckDB, settles the number, and leaves the worked totals in `output/`.
 
-This is an **educational portfolio lab**. Datasets are **synthetic**. It does **not** claim employment at a customer, hospital, bank, SAP shop, or Oracle estate. No real PHI/PII. No live cloud spend. No API keys required.
+## The Tuesday number
 
----
+Week of 2024-09-09. Region `R-ATL-04`, stores `S-110`, `S-214`, `S-307`.
 
-## Problem statement
+| Source | Gross margin % | Revenue | Margin $ |
+|--------|----------------|---------|----------|
+| Store-ops register rollup (local) | 27.18% | $184,220.40 | $50,072.11 |
+| Region Tuesday pack (distributed fact + shrink) | 24.12% | $184,220.40 | $44,430.00 |
+| Settled query (this lab) | **24.12%** | $184,220.40 | $44,430.00 |
 
-Teams need interactive SQL on large fact tables with MPP-minded set-based joins, hash distribution teaching notes, and low-latency aggregates for merchandising and risk packs.
+Store rollups omitted the `shrink_adj` fact and used list cost instead of landed cost. Same tickets, different cost basis and missing journal.
 
-**Domain focus:** Retail / finance analytics
+## Distribution of the fact
 
----
+Exasol teaching pattern: distribute the largest fact on the join key you filter most. Category Monday packs want `DISTRIBUTE BY sku_id`. Region Tuesday packs want `DISTRIBUTE BY store_id`. This lab’s DDL comment and `EXPLAIN`-style note live in `sql/01_ddl_and_distribution.sql`. The generator plants a deliberate skew so `store_id` distribution keeps region filters local while a `sku_id`-only layout would reshuffle every Tuesday pack.
 
-## Why this tool (Exasol-style columnar MPP SQL (DuckDB stand-in))
+## The query that settled it
 
-| Spreadsheet rollups | Exasol-style SQL on a columnar engine |
-|---|---|
-| Opaque joins | Explicit star-schema SQL |
-| No distribution thinking | Documented partition/distribution notes |
-
----
-
-## Architecture
-
-```mermaid
-flowchart LR
-  GEN[generate_synthetic_data.py]
-  DATA[data/*.csv]
-  RUN[run_lab.py]
-  OUT[output/*.csv]
-  CHART[generate_charts.py]
-  IMG[docs/images/*.png]
-  GEN --> DATA --> RUN --> OUT
-  OUT --> CHART --> IMG
-```
-
-See [`docs/architecture.md`](docs/architecture.md).
-
----
-
-## Dataset dictionary
-
-| File | Grain | Notes |
-|------|-------|-------|
-| `dim_store.csv` | Store | Region, format |
-| `dim_sku.csv` | SKU | Category, unit cost |
-| `fact_sales.csv` | Sale line | Store/day/SKU revenue |
-| `output/summary.csv` | Region×category | Margin and revenue |
-
----
-
-## Prerequisites
-
-- Python 3.10+
-- Packages in `requirements.txt`
-
----
-
-## How to run
+`sql/02_tuesday_settlement.sql` joins `fact_sales` to landed-cost dim, left-joins `fact_shrink_adj` for the Tuesday post, and computes margin as `(revenue - landed_cogs - shrink_amt) / revenue`. Output lands in `output/tuesday_settlement.csv` and `output/store_vs_region.csv`.
 
 ```powershell
-cd "exasol-analytics-lab-"
-python -m venv .venv
-.\\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 python scripts/generate_synthetic_data.py
-python src/run_lab.py
-python scripts/generate_charts.py
+python src/run_settlement.py
 ```
 
-Inspect `output/summary.csv` and `docs/images/primary_metric.png`.
-
----
-
-## Local vs cloud (honest)
-
-**DuckDB** stands in for Exasol locally. No Exasol cluster, license, or cloud SaaS is used. SQL dialect is ANSI-leaning with teaching comments for Exasol habits (distribution keys, LUTs).
-
----
-
-## Results interpretation
-
-Open `output/` CSVs and the PNGs under `docs/images/`. Numbers are synthetic teaching fixtures — use them to explain grain, filters, and control totals, not as real business KPIs.
-
----
-
-## Limitations
-
-- Stand-in engines (DuckDB/SQLite/pandas) replace paid MPP/warehouses where noted.
-- Simplified schemas vs production SAP/Oracle/Hive estates.
-- Charts are matplotlib teaching visuals, not vendor BI embeds.
-
----
-
-## Exercises
-
-1. Add a distribution-key note choosing `store_id` vs `sku_id`.
-2. Rewrite the margin query with a ROLLUP teaching CTE.
-3. Plant a bad join and catch it with a control total.
-
----
-
-## License / attribution
-
-Educational portfolio content by Faiz Elahi. Synthetic data for teaching only.
-
+Worked result after a clean run: region margin **24.12%**, store-ops inflated print **27.18%**, delta explained entirely by shrink ($4,812.50) plus landed-vs-list cost ($829.61).
